@@ -1,73 +1,171 @@
--- Since this function doesn't have a `local` qualifier, it will end up in the
--- global namespace, and can be invoked from anywhere using:
---
--- :lua global_lua_function()
---
--- Personally, I feel that kind of global namespace pollution should probably
--- be avoided in order to prevent other modules from accidentally clashing with
--- my function names. While `global_lua_function` seems kind of rare, if I had
--- a function called `connect` in my module, I would be more concerned. So I
--- normally try to follow the pattern demonstrated by `local_lua_function`. The
--- right choice might depend on your circumstances.
-function global_lua_function()
-    print "mynewplugin.myluamodule.init global_lua_function: hello"
+-- local winID
+
+local function center(str)
+    local width = vim.api.nvim_win_get_width(0)
+    local shift = math.floor(width / 2) - math.floor(string.len(str) / 2)
+    return string.rep(' ', shift) .. str
 end
 
--- This function is qualified with `local`, so it's visibility is restricted to
--- this file. It is exported below in the return value from this module using a
--- Lua pattern that allows symbols to be selectively exported from a module.
-local function local_lua_function()
-    print "mynewplugin.myluamodule.init local_lua_function: hello"
+local function close_window()
+  vim.api.nvim_win_close(win, true)
+end
+
+-- Our file list start at line 4, so we can prevent reaching above it
+-- from bottm the end of the buffer will limit movment
+local function move_cursor(winID, delta, marks, files, numGlobalMarks, maxLine)
+  print(delta)
+  -- moving up the screen
+  new_pos = 0
+  local curr_pos = vim.api.nvim_win_get_cursor(winID)[1]
+  if delta == -1 then
+    new_pos = math.max(4, (curr_pos-1))
+    if new_pos < 3 + numGlobalMarks + 3 and new_pos > 3 + numGlobalMarks then
+      new_pos = 3 + numGlobalMarks
+    end
+  else
+    new_pos = math.min(maxLine-1, (curr_pos + 1))
+    if new_pos < 3 + numGlobalMarks + 3 and new_pos > 3 + numGlobalMarks then
+      new_pos = 3 + numGlobalMarks + 3
+    end 
+  end
+
+  vim.api.nvim_win_set_cursor(winID, {new_pos, 0})
+  print(vim.api.nvim_get_current_line())
+end
+
+-- Open file under cursor
+function open_file( marks )
+  local mark = vim.api.nvim_get_current_line()
+  markData = marks[mark]
+  file = markData["f"]
+  lineNum = markData["l"]
+  close_window()
+  vim.api.nvim_command('edit +'..lineNum.." "..file)
+end
+
+local function open_file2( files )
+  -- local mark = vim.api.nvim_get_current_line()
+  -- local file = files[ mark ]
+  print(marks)
+  -- close_window()
+  -- vim.api.nvim_command('edit '..file)
+end
+
+local function calculateMaxLine( numGlobalMarks, numLocalMarks)
+  minimumLine = 4
+  if numLocalMarks == 0 then
+    return minimumLine + numGlobalMarks
+  end
+
+  return minimumLine + numGlobalMarks + 2 + numLocalMarks
+end
+
+local function set_mappings(winID, marks, files, numGlobalMarks, maxLine)
+    local mappings = {
+        e = 'open_file( files )',
+        q = 'close_window(winID)',
+        k = 'move_cursor(winID, -1, marks, files, numGlobalMarks, maxLine)',
+        j = 'move_cursor(winID, 1, marks, files, numGlobalMarks, maxLine)',
+    }
+
+    for k,v in pairs(mappings) do
+        vim.api.nvim_buf_set_keymap(buf, 'n', k, ':lua require"myluamodule".'..v..'<cr>', {
+            nowait = true, noremap = true, silent = true
+        })
+    end
 end
 
 local function printWindowSize( )
-    tmp = vim.fn.eval("g:localMarks")
-    tmp2 = vim.fn.eval("g:globalMarks")
-    print(tmp)
-    print(tmp2)
-    local fname = '/Users/ronan/.local/share/nvim/shada/main.shada'
-    local io = require "io"
-    local open = io.open
-    local file = open(fname, "rb") -- r read mode and b binary mode
-    local content = file:read "*a"    
-    -- local f = assert(loadfile("/Users/ronan/.vim/mynewplugin/lua/myluamodule/msgpack.lua"))
+    -- get mark data
+    localMarks = vim.fn.eval("g:localMarks")
+    globalMarks = vim.fn.eval("g:globalMarks")
 
-    -- local decoded = msgpack.decode(content)
-    -- msgpack = require('msgpack')
-    -- local value = msgpack.decode(content) -- decode to Lua value
-    -- local binary_data = msgpack.encode(lua_value)
+    local stats = vim.api.nvim_list_uis()[1] -- get details of the UI
 
-    local stats = vim.api.nvim_list_uis()[1]
-    -- local height = vim.fn.nvim_win_get_height(0)
+    -- extract height and width data from the UI as opposed to window
     local height = stats.height
     local width = stats.width
-    print(height , " " , width)
 
-    -- local buf = vim.api.nvim_create_buf(false, true)
-    -- local winId = vim.api.nvim_open_win( buf, true, {
-    --     relative="editor",
-    --     width = width - 4,
-    --     height = height - 4,
-    --     col = 2,
-    --     row = 2,
-    -- })
+    -- (not-listed buffer, scratch buffer)
+    local buf = vim.api.nvim_create_buf( false, true )
+    -- vim.api.nvim_buf_set_lines(buf, 3, -1, false, marks)
+    vim.api.nvim_buf_set_option(buf, 'bufhidden', 'wipe')
 
-    print "chicken dinner3"
+
+    files = {}
+    marks = {}
+    i = 0
+
+    globalOutput = {}
+    localOutput = {}
+    -- generate the output to be displated on the floating window
+    numGlobalMarks = 0
+    for mark,line in pairs(globalMarks) do
+      out = mark.."  "..line["f"]..":"..tostring(line["l"])
+      table.insert(globalOutput ,out )
+      numGlobalMarks = numGlobalMarks + 1
+    end
+    table.sort(globalOutput )
+
+    fname =vim.fn.eval("expand('%:t')") 
+    numLocalMarks = 0
+    for mark,line in pairs(localMarks) do
+      localLine = mark.." "..fname..":"..line
+      table.insert(localOutput , localLine)
+      numLocalMarks = numLocalMarks + 1
+    end
+    if next(localOutput) == nil then
+      table.insert(localOutput , "no local marks for "..fname )
+    end
+    table.sort(localOutput )
+      
+    -- buffer, start, end, strict_indexing(outOfBounds == error), array data
+    -- fill content
+    vim.api.nvim_buf_set_lines(buf, 0, -1, false, {
+        center('mark-preview.nvim'),
+        ''
+    })
+    vim.api.nvim_buf_set_lines(buf, 2, -1, false, {
+        'Global Marks',
+        ''
+    })
+    vim.api.nvim_buf_set_lines(buf, 3, -1, false, globalOutput )
+    localMarkBegin = 3 + numGlobalMarks + 6
+    vim.api.nvim_buf_set_lines(buf, localMarkBegin, -1, false, {
+        '',
+        'Local Marks'
+    })
+    vim.api.nvim_buf_set_lines(buf, localMarkBegin + 1, -1, false, localOutput)
+
+
+    for i,line in pairs(globalMarks) do
+        files[string.char(line["n"])] = line
+        table.insert(marks, string.char(line["n"]) )
+    end
+
+    
+
+
+    -- true == bring into focus
+    winID = vim.api.nvim_open_win( buf, true, {
+        style = "minimal", -- disable line number or error highlighting
+        relative="editor",
+        width = width - 8,
+        height = height - 4,
+        col = 2,
+        row = 2,
+    })
+
+    maxLine = calculateMaxLine(numGlobalMarks, numLocalMarks)
+    set_mappings( winID, marks, files, numGlobalMarks, maxLine)
+    vim.api.nvim_win_set_cursor(winID, {4, 0}) -- set cursor on first list entry
 end
 
-local function onResize()
-
-end
--- Returning a Lua table at the end allows fine control of the symbols that
--- will be available outside this file. By returning the table, it allows the
--- importer to decide what name to use in their own code.
---
--- Examples of how this module is imported:
-                                --    local mine = require('myluamodule')
---    mine.local_lua_function()
---    local myluamodule = require('myluamodule')
---    myluamodule.local_lua_function()
 return {
     local_lua_function = local_lua_function,
     printWindowSize = printWindowSize,
+    update_view = update_view,
+    move_cursor = move_cursor,
+    close_window = close_window,
+    open_file = open_file
 }
