@@ -29,7 +29,6 @@ function! ReloadOnChange()
     
     echom(g:localMarks)
     echom(g:globalMarks)
-    print("ronan end vim")
     lua require("myluamodule").printWindowSize()
 endfunction
 
