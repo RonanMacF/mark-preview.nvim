@@ -62,9 +62,12 @@ end
 local function set_mappings(winID, files, numGlobalMarks, maxLine)
     local mappings = {
         e = 'open_file( files )',
+        ['<cr>'] = 'open_file( files )',
         q = 'close_window(winID)',
         k = 'move_cursor(winID, -1, numGlobalMarks, maxLine)',
+        ['<up>'] = 'move_cursor(winID, -1, numGlobalMarks, maxLine)',
         j = 'move_cursor(winID, 1, numGlobalMarks, maxLine)',
+        ['<down>'] = 'move_cursor(winID, 1, numGlobalMarks, maxLine)',
     }
 
     for k,v in pairs(mappings) do
